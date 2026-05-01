@@ -115,10 +115,11 @@ async def admin_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif data == "create_normal":
         ctx.user_data["gw_type"] = "normal"
         await q.edit_message_text(
-            "🎰 *Normal GW Setup*\n\nStep 1/4 — Enter the prize amount (e.g. `$50 USDT`):",
+            "🎰 *Normal GW Setup*\n\nStep 1/4 — Send the channel username (e.g. `@MyChannel`):\n"
+            "_(Users must join this channel to participate)_",
             parse_mode=ParseMode.MARKDOWN,
         )
-        return GW_AMOUNT
+        return GW_CHANNEL
 
     return ADMIN_MENU
 
@@ -171,12 +172,21 @@ async def gw_channel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not text.startswith("@"):
         text = "@" + text.lstrip("@")
     ctx.user_data["gw_channel"] = text
-    await update.message.reply_text(
-        "Step 2/5 — Send the *discussion group link* (e.g. `https://t.me/+abc123`):\n"
-        "_(The group where we count messages)_",
-        parse_mode=ParseMode.MARKDOWN,
-    )
-    return GW_DISCUSSION
+    gw_type = ctx.user_data.get("gw_type", "normal")
+    if gw_type == "strict":
+        await update.message.reply_text(
+            "Step 2/5 — Send the *discussion group link* (e.g. `https://t.me/+abc123`):\n"
+            "_(The group where we count messages for top-texter selection)_",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return GW_DISCUSSION
+    else:
+        # Normal GW — skip discussion, go straight to amount
+        await update.message.reply_text(
+            "Step 2/4 — Enter the *prize amount* (e.g. `$50 USDT`):",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return GW_AMOUNT
 
 
 async def gw_discussion(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -191,7 +201,7 @@ async def gw_discussion(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def gw_amount(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["gw_amount"] = update.message.text.strip()
     gw_type = ctx.user_data.get("gw_type", "normal")
-    step = "4/5" if gw_type == "strict" else "2/4"
+    step = "4/5" if gw_type == "strict" else "3/4"
     await update.message.reply_text(
         f"Step {step} — Enter a *description* (or send `-` to skip):",
         parse_mode=ParseMode.MARKDOWN,
@@ -203,7 +213,7 @@ async def gw_description(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     txt = update.message.text.strip()
     ctx.user_data["gw_description"] = "" if txt == "-" else txt
     gw_type = ctx.user_data.get("gw_type", "normal")
-    step = "5/5" if gw_type == "strict" else "3/4"
+    step = "5/5" if gw_type == "strict" else "4/4"
     await update.message.reply_text(
         f"Step {step} — Enter *duration* in hours (e.g. `24` for 24 hours):",
         parse_mode=ParseMode.MARKDOWN,
@@ -233,9 +243,10 @@ async def gw_duration(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"✅ *Review Giveaway*\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"• Type: `{gw_type.upper()}`\n"
+        f"• Channel: `{channel}`\n"
     )
     if gw_type == "strict":
-        preview += f"• Channel: `{channel}`\n• Discussion: {discussion}\n"
+        preview += f"• Discussion: {discussion}\n"
     preview += (
         f"• Prize: `{amount}`\n"
         f"• Description: {desc}\n"

@@ -70,8 +70,8 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    # ── Strict GW: channel membership check ───────────────────────────────────
-    if gw["type"] == "strict" and gw.get("channel"):
+    # ── Channel membership check — BOTH GW types require joining ──────────────
+    if gw.get("channel"):
         channel = gw["channel"]
         try:
             member = await ctx.bot.get_chat_member(chat_id=channel, user_id=user.id)
@@ -156,39 +156,50 @@ async def captcha_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⏰ Giveaway ended while solving captcha.")
         return ConversationHandler.END
 
-    # ── Step 2: Send GW post with VERIFIED share button ───────────────────────
+    # ── Step 2: Share (Strict GW only) or direct confirm (Normal GW) ──────────
     bot_me = await ctx.bot.get_me()
     post_text, deep_link = build_giveaway_post(gw, gw["entry_count"], bot_me.username)
 
-    await update.message.reply_text(
-        f"✅ *Captcha solved!*\n\n"
-        f"*Step 2 of 3 — Share this giveaway*\n\n"
-        f"Press the *Share* button below and send the giveaway to *3 different chats or friends*.\n\n"
-        f"⚠️ Telegram verifies each share — the bot will automatically count them.\n"
-        f"After *3 confirmed shares*, your entry confirmation will be sent here.",
-        parse_mode=ParseMode.MARKDOWN,
-    )
-
-    # send the GW post with a share button (switch_inline_query sends via inline)
-    share_kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton(
-            "📢 Share Giveaway (1/3)",
-            switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(
-                query=f"gw_{gw_id}",
-                allow_user_chats=True,
-                allow_bot_chats=False,
-                allow_group_chats=True,
-                allow_channel_chats=False,
-            ),
+    if gw["type"] == "strict":
+        # Strict GW — must share to 3 chats via inline (Telegram-verified)
+        await update.message.reply_text(
+            f"✅ *Captcha solved!*\n\n"
+            f"*Step 2 of 3 — Share this giveaway*\n\n"
+            f"Press *Share* below and send to *3 different chats/friends*.\n"
+            f"Telegram verifies each share automatically.\n"
+            f"After *3 confirmed shares*, your confirm button will appear here.",
+            parse_mode=ParseMode.MARKDOWN,
         )
-    ]])
-    await update.message.reply_text(
-        post_text,
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=share_kb,
-    )
-    # Share tracking now handled async via ChosenInlineResult in handlers/inline.py
-    return ConversationHandler.END
+        share_kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                "📢 Share Giveaway",
+                switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(
+                    query=f"gw_{gw_id}",
+                    allow_user_chats=True,
+                    allow_bot_chats=False,
+                    allow_group_chats=True,
+                    allow_channel_chats=False,
+                ),
+            )
+        ]])
+        await update.message.reply_text(
+            post_text, parse_mode=ParseMode.MARKDOWN, reply_markup=share_kb,
+        )
+        return ConversationHandler.END  # Tracked via ChosenInlineResult
+
+    else:
+        # Normal GW — no share requirement, go straight to confirm
+        confirm_kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🎉 Confirm My Entry!", callback_data=f"confirm_entry_{gw_id}")
+        ]])
+        await update.message.reply_text(
+            f"✅ *Captcha solved!*\n\n"
+            f"Click below to confirm your entry into Giveaway *#{gw_id}*!\n"
+            f"💰 Prize: `{gw['amount']}`",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=confirm_kb,
+        )
+        return ConversationHandler.END
 
 
 # ── Confirm entry callback (standalone — triggered after 3 verified shares) ───────────
