@@ -29,15 +29,28 @@ def admin_menu_keyboard(is_owner=False):
     kb = [
         [InlineKeyboardButton("⚡ Create Strict GW", callback_data="create_strict")],
         [InlineKeyboardButton("🎰 Create Normal GW", callback_data="create_normal")],
-        [InlineKeyboardButton("📋 Running Giveaways", callback_data="list_gws")],
+        [InlineKeyboardButton("📋 Running Giveaways", callback_data="list_gws_0")],
     ]
     if is_owner:
         kb += [
             [InlineKeyboardButton("➕ Add Admin", callback_data="add_admin"),
              InlineKeyboardButton("➖ Remove Admin", callback_data="rm_admin")],
-            [InlineKeyboardButton("👥 List Admins", callback_data="list_admins")],
+            [InlineKeyboardButton("👥 List Admins", callback_data="list_admins_0")],
         ]
     kb.append([InlineKeyboardButton("❌ Close", callback_data="close_panel")])
+    return InlineKeyboardMarkup(kb)
+
+def paginated_keyboard(callback_prefix: str, page: int, total_items: int, per_page: int = 10):
+    kb = []
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"{callback_prefix}_{page-1}"))
+    if (page + 1) * per_page < total_items:
+        nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"{callback_prefix}_{page+1}"))
+    
+    if nav_row:
+        kb.append(nav_row)
+    kb.append([InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")])
     return InlineKeyboardMarkup(kb)
 
 
@@ -72,15 +85,35 @@ async def admin_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("✅ Panel closed.")
         return ConversationHandler.END
 
-    elif data == "list_admins":
+    elif data == "back_to_menu":
+        await q.edit_message_text(
+            "🛠 *Admin Panel*\nSelect an option:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=admin_menu_keyboard(is_owner),
+        )
+        return ADMIN_MENU
+
+    elif data.startswith("list_admins_"):
+        page = int(data.split("_")[-1])
         admins = await db.get_admins()
         if not admins:
             text = "👥 *Admins:* None added yet."
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]])
         else:
-            lines = [f"• `{a['user_id']}` — @{a['username'] or 'unknown'}" for a in admins]
-            text = "👥 *Admins:*\n" + "\n".join(lines)
-        await q.edit_message_text(text, parse_mode=ParseMode.MARKDOWN,
-                                  reply_markup=admin_menu_keyboard(is_owner))
+            per_page = 10
+            start = page * per_page
+            end = start + per_page
+            page_admins = admins[start:end]
+            
+            lines = []
+            for a in page_admins:
+                username_part = f" — @{a['username']}" if a.get('username') else ""
+                lines.append(f"• `{a['user_id']}`{username_part}")
+                
+            text = f"👥 *Admins (Page {page+1}):*\n" + "\n".join(lines)
+            kb = paginated_keyboard("list_admins", page, len(admins), per_page)
+            
+        await q.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
         return ADMIN_MENU
 
     elif data == "add_admin":
@@ -91,20 +124,28 @@ async def admin_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("Enter the Telegram user ID to remove from admins:")
         return REMOVE_ADMIN_ID
 
-    elif data == "list_gws":
+    elif data.startswith("list_gws_"):
+        page = int(data.split("_")[-1])
         gws = await db.get_running_giveaways()
         if not gws:
             text = "📋 No running giveaways."
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]])
         else:
+            per_page = 10
+            start = page * per_page
+            end = start + per_page
+            page_gws = gws[start:end]
+            
             lines = []
-            for g in gws:
+            for g in page_gws:
                 lines.append(
                     f"• *GW #{g['id']}* [{g['type']}] — 💰{g['amount']} — "
                     f"👥{g['entry_count']} entries"
                 )
-            text = "📋 *Running Giveaways:*\n" + "\n".join(lines)
-        await q.edit_message_text(text, parse_mode=ParseMode.MARKDOWN,
-                                  reply_markup=admin_menu_keyboard(is_owner))
+            text = f"📋 *Running Giveaways (Page {page+1}):*\n" + "\n".join(lines)
+            kb = paginated_keyboard("list_gws", page, len(gws), per_page)
+            
+        await q.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
         return ADMIN_MENU
 
     elif data == "create_strict":
@@ -290,8 +331,10 @@ async def gw_confirm_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     await q.edit_message_text(
         f"✅ Giveaway *#{gw_id}* created!\n\n"
-        f"Now send the *channel or group username* where you want to post it\n"
-        f"(e.g. `@MyChannel` or send `here` to post in this chat):",
+        f"⚠️ *Important:* To automatically update the live entry count on the post, "
+        f"the bot MUST be the one who sends it to the channel.\n\n"
+        f"1️⃣ First, add this bot as an **Admin** in your target channel.\n"
+        f"2️⃣ Then, send the channel username here (e.g. `@MyChannel` or send `here` to post in this chat):",
         parse_mode=ParseMode.MARKDOWN,
     )
     return POST_CHANNEL
