@@ -3,7 +3,7 @@ services:
     name: gwbot
     runtime: python
     pythonVersion: "3.11.9"
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install --prefer-binary -r requirements.txt
     startCommand: python bot.py
     envVars:
       - key: BOT_TOKEN
