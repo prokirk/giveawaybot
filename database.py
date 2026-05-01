@@ -71,21 +71,6 @@ async def init_db():
                 PRIMARY KEY(giveaway_id, user_id)
             );
 
-            CREATE TABLE IF NOT EXISTS share_refs (
-                token       TEXT PRIMARY KEY,
-                referrer_id BIGINT NOT NULL,
-                giveaway_id INTEGER NOT NULL,
-                created_at  TIMESTAMPTZ DEFAULT NOW(),
-                UNIQUE(referrer_id, giveaway_id)
-            );
-
-            CREATE TABLE IF NOT EXISTS share_clicks (
-                id          SERIAL PRIMARY KEY,
-                ref_token   TEXT NOT NULL,
-                clicker_id  BIGINT NOT NULL,
-                clicked_at  TIMESTAMPTZ DEFAULT NOW(),
-                UNIQUE(ref_token, clicker_id)
-            );
         """)
 
 
@@ -291,51 +276,3 @@ async def get_top_texters(gw_id: int, top_percent: float = 0.10) -> List[Dict]:
         return all_users[:top_n]
 
 
-# ── Share refs ─────────────────────────────────────────────────────────────────
-
-async def get_or_create_ref_token(user_id: int, gw_id: int) -> str:
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT token FROM share_refs WHERE referrer_id=$1 AND giveaway_id=$2",
-            user_id, gw_id
-        )
-        if row:
-            return row["token"]
-        import uuid
-        token = "r" + uuid.uuid4().hex[:15]
-        await conn.execute(
-            "INSERT INTO share_refs (token, referrer_id, giveaway_id) VALUES ($1,$2,$3)",
-            token, user_id, gw_id
-        )
-        return token
-
-
-async def get_ref_info(token: str) -> Optional[Dict]:
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT * FROM share_refs WHERE token=$1", token)
-        return dict(row) if row else None
-
-
-async def add_share_click(ref_token: str, clicker_id: int) -> bool:
-    """Returns True if this is a new unique click."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        try:
-            await conn.execute(
-                "INSERT INTO share_clicks (ref_token, clicker_id) VALUES ($1,$2)",
-                ref_token, clicker_id
-            )
-            return True
-        except asyncpg.UniqueViolationError:
-            return False
-
-
-async def count_share_clicks(ref_token: str) -> int:
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT COUNT(*) as cnt FROM share_clicks WHERE ref_token=$1", ref_token
-        )
-        return row["cnt"] if row else 0

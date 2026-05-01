@@ -13,7 +13,7 @@ from telegram.ext import (
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-OWNER_ID = int(os.getenv("OWNER_ID", "0"))
+OWNER_ID   = int(os.getenv("OWNER_ID", "0"))
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -30,14 +30,15 @@ from handlers.admin import (
     GW_CONFIRM, POST_CHANNEL,
 )
 from handlers.user import (
-    cmd_start, captcha_answer, participate_callback,
-    confirm_entry_callback, CAPTCHA_WAIT, CONFIRM_WAIT,
+    cmd_start, captcha_answer,
+    i_shared_callback, confirm_entry_callback,
+    CAPTCHA_WAIT, SHARE_WAIT, CONFIRM_WAIT,
 )
 from handlers.jobs import update_all_posts, track_discussion_messages
 
 
-# ── Keep-alive HTTP server for Render ─────────────────────────────────────────
-class _HealthHandler(BaseHTTPRequestHandler):
+# ── Render keep-alive health server ───────────────────────────────────────────
+class _Health(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
@@ -45,23 +46,21 @@ class _HealthHandler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-
-def _start_health_server():
+def _start_health():
     port = int(os.getenv("PORT", "10000"))
-    HTTPServer(("0.0.0.0", port), _HealthHandler).serve_forever()
+    HTTPServer(("0.0.0.0", port), _Health).serve_forever()
 
 
 async def post_init(app: Application):
     await db.init_db()
-    logging.getLogger(__name__).info("DB initialised.")
+    logging.getLogger(__name__).info("Database initialised.")
 
 
 def main():
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN not set in .env")
 
-    # Start health check server in background thread (for Render)
-    threading.Thread(target=_start_health_server, daemon=True).start()
+    threading.Thread(target=_start_health, daemon=True).start()
 
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
@@ -69,40 +68,45 @@ def main():
     admin_conv = ConversationHandler(
         entry_points=[CommandHandler("admin", admin_panel)],
         states={
-            ADMIN_MENU:     [CallbackQueryHandler(admin_callback)],
-            ADD_ADMIN_ID:   [MessageHandler(filters.TEXT & ~filters.COMMAND, do_add_admin)],
-            REMOVE_ADMIN_ID:[MessageHandler(filters.TEXT & ~filters.COMMAND, do_remove_admin)],
-            GW_CHANNEL:     [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_channel)],
-            GW_DISCUSSION:  [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_discussion)],
-            GW_AMOUNT:      [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_amount)],
-            GW_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_description)],
-            GW_DURATION:    [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_duration)],
-            GW_CONFIRM:     [CallbackQueryHandler(gw_confirm_callback)],
-            POST_CHANNEL:   [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_post_channel)],
+            ADMIN_MENU:      [CallbackQueryHandler(admin_callback)],
+            ADD_ADMIN_ID:    [MessageHandler(filters.TEXT & ~filters.COMMAND, do_add_admin)],
+            REMOVE_ADMIN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, do_remove_admin)],
+            GW_CHANNEL:      [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_channel)],
+            GW_DISCUSSION:   [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_discussion)],
+            GW_AMOUNT:       [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_amount)],
+            GW_DESCRIPTION:  [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_description)],
+            GW_DURATION:     [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_duration)],
+            GW_CONFIRM:      [CallbackQueryHandler(gw_confirm_callback)],
+            POST_CHANNEL:    [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_post_channel)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         per_chat=False,
     )
 
-    # ── User entry conversation (share → captcha → confirm) ───────────────────
+    # ── User entry conversation ────────────────────────────────────────────────
+    # Flow: /start gw_<id> → CAPTCHA_WAIT → SHARE_WAIT → CONFIRM_WAIT → done
     user_conv = ConversationHandler(
-        entry_points=[
-            CommandHandler("start", cmd_start),
-            CallbackQueryHandler(participate_callback, pattern=r"^participate_\d+$"),
-        ],
+        entry_points=[CommandHandler("start", cmd_start)],
         states={
-            CAPTCHA_WAIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, captcha_answer)],
-            CONFIRM_WAIT: [CallbackQueryHandler(confirm_entry_callback, pattern=r"^confirm_entry_\d+$")],
+            CAPTCHA_WAIT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, captcha_answer)
+            ],
+            SHARE_WAIT: [
+                CallbackQueryHandler(i_shared_callback, pattern=r"^i_shared_\d+$")
+            ],
+            CONFIRM_WAIT: [
+                CallbackQueryHandler(confirm_entry_callback, pattern=r"^confirm_entry_\d+$")
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         per_chat=False,
-        conversation_timeout=300,
+        conversation_timeout=1800,  # 30 min — enough time to share
     )
 
     app.add_handler(admin_conv)
     app.add_handler(user_conv)
 
-    # Track group messages for strict GW
+    # Track group messages for strict GW message counting
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS,
@@ -110,10 +114,10 @@ def main():
         )
     )
 
-    # Update posts every 60 seconds
+    # Update entry counts and auto-end expired giveaways every 60s
     app.job_queue.run_repeating(update_all_posts, interval=60, first=15)
 
-    logging.getLogger(__name__).info("🤖 GW Bot starting (polling)...")
+    logging.getLogger(__name__).info("🤖 GW Bot starting...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
