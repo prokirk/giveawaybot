@@ -9,7 +9,10 @@ from telegram.constants import ParseMode
 import database as db
 from formatter import build_giveaway_post
 
-OWNER_ID = int(os.getenv("OWNER_ID", "0"))
+try:
+    OWNER_ID = int(os.getenv("OWNER_ID", "0"))
+except ValueError:
+    OWNER_ID = 0
 
 # ── Conversation states ────────────────────────────────────────────────────────
 (

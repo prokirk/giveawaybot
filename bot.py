@@ -14,7 +14,11 @@ from telegram.ext import (
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-OWNER_ID   = int(os.getenv("OWNER_ID", "0"))
+try:
+    OWNER_ID = int(os.getenv("OWNER_ID", "0"))
+except ValueError:
+    OWNER_ID = 0
+
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
