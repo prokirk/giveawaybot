@@ -24,23 +24,12 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     args = ctx.args
 
-    # Plain /start — list active giveaways
+    # Plain /start — just a welcome message
     if not args:
-        gws = await db.get_running_giveaways()
-        if not gws:
-            await update.message.reply_text(
-                f"👋 Hello *{user.first_name}*!\n\nNo active giveaways right now. Stay tuned!",
-                parse_mode=ParseMode.MARKDOWN,
-            )
-            return ConversationHandler.END
-
-        lines = [
-            f"• *GW #{g['id']}* — 💰 {g['amount']} | "
-            f"👥 {g['entry_count']} entries | ⏳ {time_remaining(str(g['end_time']))}"
-            for g in gws
-        ]
         await update.message.reply_text(
-            f"👋 Hello *{user.first_name}*!\n\n🎉 *Active Giveaways:*\n" + "\n".join(lines),
+            f"👋 Hello *{user.first_name}*!\n\n"
+            f"This bot is designed to manage and run professional Telegram giveaways.\n"
+            f"Stay tuned for upcoming events!",
             parse_mode=ParseMode.MARKDOWN,
         )
         return ConversationHandler.END

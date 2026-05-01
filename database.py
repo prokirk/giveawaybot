@@ -208,6 +208,12 @@ async def update_giveaway_post(gw_id: int, message_id: int, chat_id: int):
     )
 
 
+async def delete_giveaway(gw_id: int):
+    await _run("DELETE FROM giveaways WHERE id=%s", (gw_id,))
+    await _run("DELETE FROM entries WHERE giveaway_id=%s", (gw_id,))
+    await _run("DELETE FROM user_message_counts WHERE giveaway_id=%s", (gw_id,))
+    await _run("DELETE FROM inline_shares WHERE giveaway_id=%s", (gw_id,))
+
 async def get_giveaway(gw_id: int) -> Optional[Dict]:
     return await _run("SELECT * FROM giveaways WHERE id=%s", (gw_id,), fetch="one")
 

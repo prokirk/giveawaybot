@@ -1,6 +1,7 @@
 """Admin panel conversation handlers."""
 from __future__ import annotations
 import os
+import html
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
@@ -27,21 +28,22 @@ except ValueError:
 
 def admin_menu_keyboard(is_owner=False):
     kb = [
-        [InlineKeyboardButton("⚡ Create Strict GW", callback_data="create_strict")],
-        [InlineKeyboardButton("🎰 Create Normal GW", callback_data="create_normal")],
-        [InlineKeyboardButton("📋 Running Giveaways", callback_data="list_gws_0")],
+        [InlineKeyboardButton("⚡ Create Strict GW", callback_data="create_strict"),
+         InlineKeyboardButton("🎰 Create Normal GW", callback_data="create_normal")],
+        [InlineKeyboardButton("📋 Manage Active Giveaways", callback_data="list_gws_0")],
     ]
     if is_owner:
         kb += [
             [InlineKeyboardButton("➕ Add Admin", callback_data="add_admin"),
              InlineKeyboardButton("➖ Remove Admin", callback_data="rm_admin")],
-            [InlineKeyboardButton("👥 List Admins", callback_data="list_admins_0")],
+            [InlineKeyboardButton("👥 Manage Admins", callback_data="list_admins_0")],
         ]
-    kb.append([InlineKeyboardButton("❌ Close", callback_data="close_panel")])
+    kb.append([InlineKeyboardButton("❌ Close Panel", callback_data="close_panel")])
     return InlineKeyboardMarkup(kb)
 
-def paginated_keyboard(callback_prefix: str, page: int, total_items: int, per_page: int = 10):
-    kb = []
+
+def paginated_keyboard(callback_prefix: str, page: int, total_items: int, per_page: int = 10, extra_buttons=None):
+    kb = extra_buttons or []
     nav_row = []
     if page > 0:
         nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"{callback_prefix}_{page-1}"))
@@ -50,7 +52,7 @@ def paginated_keyboard(callback_prefix: str, page: int, total_items: int, per_pa
     
     if nav_row:
         kb.append(nav_row)
-    kb.append([InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")])
+    kb.append([InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_menu")])
     return InlineKeyboardMarkup(kb)
 
 
@@ -63,8 +65,8 @@ async def admin_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     ctx.user_data["is_owner"] = is_owner
     await update.message.reply_text(
-        "🛠 *Admin Panel*\nSelect an option:",
-        parse_mode=ParseMode.MARKDOWN,
+        "🛠 <b>Giveaway Admin Dashboard</b>\n\nWelcome! What would you like to do?",
+        parse_mode=ParseMode.HTML,
         reply_markup=admin_menu_keyboard(is_owner),
     )
     return ADMIN_MENU
@@ -82,13 +84,13 @@ async def admin_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     if data == "close_panel":
-        await q.edit_message_text("✅ Panel closed.")
+        await q.edit_message_text("✅ Admin panel closed.")
         return ConversationHandler.END
 
     elif data == "back_to_menu":
         await q.edit_message_text(
-            "🛠 *Admin Panel*\nSelect an option:",
-            parse_mode=ParseMode.MARKDOWN,
+            "🛠 <b>Giveaway Admin Dashboard</b>\n\nSelect an option:",
+            parse_mode=ParseMode.HTML,
             reply_markup=admin_menu_keyboard(is_owner),
         )
         return ADMIN_MENU
@@ -97,7 +99,7 @@ async def admin_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         page = int(data.split("_")[-1])
         admins = await db.get_admins()
         if not admins:
-            text = "👥 *Admins:* None added yet."
+            text = "👥 <b>Admins:</b> None added yet."
             kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]])
         else:
             per_page = 10
@@ -108,60 +110,93 @@ async def admin_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             lines = []
             for a in page_admins:
                 username_part = f" — @{a['username']}" if a.get('username') else ""
-                lines.append(f"• `{a['user_id']}`{username_part}")
+                lines.append(f"• <code>{a['user_id']}</code>{html.escape(username_part)}")
                 
-            text = f"👥 *Admins (Page {page+1}):*\n" + "\n".join(lines)
+            text = f"👥 <b>Admins (Page {page+1}):</b>\n" + "\n".join(lines)
             kb = paginated_keyboard("list_admins", page, len(admins), per_page)
             
-        await q.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+        await q.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
         return ADMIN_MENU
 
     elif data == "add_admin":
-        await q.edit_message_text("Enter the Telegram user ID to add as admin:")
+        await q.edit_message_text("➕ Enter the numeric Telegram user ID to add as admin:")
         return ADD_ADMIN_ID
 
     elif data == "rm_admin":
-        await q.edit_message_text("Enter the Telegram user ID to remove from admins:")
+        await q.edit_message_text("➖ Enter the numeric Telegram user ID to remove from admins:")
         return REMOVE_ADMIN_ID
 
     elif data.startswith("list_gws_"):
         page = int(data.split("_")[-1])
         gws = await db.get_running_giveaways()
         if not gws:
-            text = "📋 No running giveaways."
+            text = "📋 No active giveaways running."
             kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]])
         else:
-            per_page = 10
+            per_page = 5
             start = page * per_page
             end = start + per_page
             page_gws = gws[start:end]
             
-            lines = []
+            text = f"📋 <b>Active Giveaways (Page {page+1})</b>\nSelect one to manage:"
+            extra_buttons = []
             for g in page_gws:
-                lines.append(
-                    f"• *GW #{g['id']}* [{g['type']}] — 💰{g['amount']} — "
-                    f"👥{g['entry_count']} entries"
-                )
-            text = f"📋 *Running Giveaways (Page {page+1}):*\n" + "\n".join(lines)
-            kb = paginated_keyboard("list_gws", page, len(gws), per_page)
+                extra_buttons.append([InlineKeyboardButton(
+                    f"#{g['id']} [{g['type'].upper()}] - 💰 {g['amount']}", 
+                    callback_data=f"manage_gw_{g['id']}"
+                )])
+                
+            kb = paginated_keyboard("list_gws", page, len(gws), per_page, extra_buttons=extra_buttons)
             
-        await q.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+        await q.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        return ADMIN_MENU
+
+    elif data.startswith("manage_gw_"):
+        gw_id = int(data.split("_")[-1])
+        gw = await db.get_giveaway(gw_id)
+        if not gw or gw['status'] != 'running':
+            await q.edit_message_text("❌ Giveaway not found or ended.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="list_gws_0")]]))
+            return ADMIN_MENU
+            
+        text = (
+            f"🎯 <b>Manage Giveaway #{gw_id}</b>\n\n"
+            f"<b>Type:</b> {gw['type'].upper()}\n"
+            f"<b>Channel:</b> {html.escape(gw.get('channel', 'N/A'))}\n"
+            f"<b>Prize:</b> {html.escape(gw['amount'])}\n"
+            f"<b>Entries:</b> {gw['entry_count']}\n"
+        )
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔗 Share Post", switch_inline_query=f"gw_{gw_id}")],
+            [InlineKeyboardButton("🗑 Delete Giveaway", callback_data=f"delete_gw_{gw_id}")],
+            [InlineKeyboardButton("🔙 Back to List", callback_data="list_gws_0")]
+        ])
+        await q.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        return ADMIN_MENU
+
+    elif data.startswith("delete_gw_"):
+        gw_id = int(data.split("_")[-1])
+        await db.delete_giveaway(gw_id)
+        await q.edit_message_text(
+            f"🗑 <b>Giveaway #{gw_id} deleted successfully.</b>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to List", callback_data="list_gws_0")]])
+        )
         return ADMIN_MENU
 
     elif data == "create_strict":
         ctx.user_data["gw_type"] = "strict"
         await q.edit_message_text(
-            "⚡ *Strict GW Setup*\n\nStep 1/5 — Send the channel username (e.g. `@MyChannel`):",
-            parse_mode=ParseMode.MARKDOWN,
+            "⚡ <b>Strict GW Setup</b>\n\nStep 1/5 — Send the channel username (e.g. <code>@MyChannel</code>):",
+            parse_mode=ParseMode.HTML,
         )
         return GW_CHANNEL
 
     elif data == "create_normal":
         ctx.user_data["gw_type"] = "normal"
         await q.edit_message_text(
-            "🎰 *Normal GW Setup*\n\nStep 1/4 — Send the channel username (e.g. `@MyChannel`):\n"
-            "_(Users must join this channel to participate)_",
-            parse_mode=ParseMode.MARKDOWN,
+            "🎰 <b>Normal GW Setup</b>\n\nStep 1/4 — Send the channel username (e.g. <code>@MyChannel</code>):\n"
+            "<i>(Users must join this channel to participate)</i>",
+            parse_mode=ParseMode.HTML,
         )
         return GW_CHANNEL
 
@@ -182,11 +217,11 @@ async def do_add_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return ADD_ADMIN_ID
     ok = await db.add_admin(target_id, "", uid)
     if ok:
-        await update.message.reply_text(f"✅ User `{target_id}` added as admin.",
-                                        parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(f"✅ User <code>{target_id}</code> added as admin.",
+                                        parse_mode=ParseMode.HTML)
     else:
         await update.message.reply_text("⚠️ Already an admin.")
-    await update.message.reply_text("🛠 *Admin Panel*", parse_mode=ParseMode.MARKDOWN,
+    await update.message.reply_text("🛠 <b>Admin Panel</b>", parse_mode=ParseMode.HTML,
                                     reply_markup=admin_menu_keyboard(True))
     return ADMIN_MENU
 
@@ -202,9 +237,9 @@ async def do_remove_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Invalid ID.")
         return REMOVE_ADMIN_ID
     ok = await db.remove_admin(target_id)
-    msg = f"✅ Admin `{target_id}` removed." if ok else "⚠️ Not found in admin list."
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
-    await update.message.reply_text("🛠 *Admin Panel*", parse_mode=ParseMode.MARKDOWN,
+    msg = f"✅ Admin <code>{target_id}</code> removed." if ok else "⚠️ Not found in admin list."
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+    await update.message.reply_text("🛠 <b>Admin Panel</b>", parse_mode=ParseMode.HTML,
                                     reply_markup=admin_menu_keyboard(True))
     return ADMIN_MENU
 
@@ -219,16 +254,16 @@ async def gw_channel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     gw_type = ctx.user_data.get("gw_type", "normal")
     if gw_type == "strict":
         await update.message.reply_text(
-            "Step 2/5 — Send the *discussion group link* (e.g. `https://t.me/+abc123`):\n"
-            "_(The group where we count messages for top-texter selection)_",
-            parse_mode=ParseMode.MARKDOWN,
+            "Step 2/5 — Send the <b>discussion group link</b> (e.g. <code>https://t.me/+abc123</code>):\n"
+            "<i>(The group where we count messages for top-texter selection)</i>",
+            parse_mode=ParseMode.HTML,
         )
         return GW_DISCUSSION
     else:
         # Normal GW — skip discussion, go straight to amount
         await update.message.reply_text(
-            "Step 2/4 — Enter the *prize amount* (e.g. `$50 USDT`):",
-            parse_mode=ParseMode.MARKDOWN,
+            "Step 2/4 — Enter the <b>prize amount</b> (e.g. <code>$50 USDT</code>):",
+            parse_mode=ParseMode.HTML,
         )
         return GW_AMOUNT
 
@@ -236,8 +271,8 @@ async def gw_channel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def gw_discussion(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["gw_discussion"] = update.message.text.strip()
     await update.message.reply_text(
-        "Step 3/5 — Enter the *prize amount* (e.g. `$100 USDT`):",
-        parse_mode=ParseMode.MARKDOWN,
+        "Step 3/5 — Enter the <b>prize amount</b> (e.g. <code>$100 USDT</code>):",
+        parse_mode=ParseMode.HTML,
     )
     return GW_AMOUNT
 
@@ -247,8 +282,8 @@ async def gw_amount(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     gw_type = ctx.user_data.get("gw_type", "normal")
     step = "4/5" if gw_type == "strict" else "3/4"
     await update.message.reply_text(
-        f"Step {step} — Enter a *description* (or send `-` to skip):",
-        parse_mode=ParseMode.MARKDOWN,
+        f"Step {step} — Enter a <b>description</b> (or send <code>-</code> to skip):",
+        parse_mode=ParseMode.HTML,
     )
     return GW_DESCRIPTION
 
@@ -259,8 +294,8 @@ async def gw_description(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     gw_type = ctx.user_data.get("gw_type", "normal")
     step = "5/5" if gw_type == "strict" else "4/4"
     await update.message.reply_text(
-        f"Step {step} — Enter *duration* in hours (e.g. `24` for 24 hours):",
-        parse_mode=ParseMode.MARKDOWN,
+        f"Step {step} — Enter <b>duration</b> in hours (e.g. <code>24</code> for 24 hours):",
+        parse_mode=ParseMode.HTML,
     )
     return GW_DURATION
 
@@ -271,7 +306,7 @@ async def gw_duration(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if hours <= 0:
             raise ValueError
     except ValueError:
-        await update.message.reply_text("❌ Enter a valid number of hours (e.g. `24`).")
+        await update.message.reply_text("❌ Enter a valid number of hours (e.g. <code>24</code>).", parse_mode=ParseMode.HTML)
         return GW_DURATION
 
     end_time = (datetime.utcnow() + timedelta(hours=hours)).isoformat()
@@ -284,26 +319,26 @@ async def gw_duration(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     desc = ctx.user_data.get("gw_description") or "—"
 
     preview = (
-        f"✅ *Review Giveaway*\n"
+        f"✅ <b>Review Giveaway</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"• Type: `{gw_type.upper()}`\n"
-        f"• Channel: `{channel}`\n"
+        f"• <b>Type:</b> <code>{gw_type.upper()}</code>\n"
+        f"• <b>Channel:</b> <code>{html.escape(channel)}</code>\n"
     )
     if gw_type == "strict":
-        preview += f"• Discussion: {discussion}\n"
+        preview += f"• <b>Discussion:</b> {html.escape(discussion)}\n"
     preview += (
-        f"• Prize: `{amount}`\n"
-        f"• Description: {desc}\n"
-        f"• Duration: `{hours}h`\n"
+        f"• <b>Prize:</b> <code>{html.escape(amount)}</code>\n"
+        f"• <b>Description:</b> {html.escape(desc)}\n"
+        f"• <b>Duration:</b> <code>{hours}h</code>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"Confirm?"
     )
 
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Confirm", callback_data="gw_confirm"),
-         InlineKeyboardButton("❌ Cancel", callback_data="gw_cancel")]
+        [InlineKeyboardButton("✅ Confirm & Create", callback_data="gw_confirm")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="gw_cancel")]
     ])
-    await update.message.reply_text(preview, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+    await update.message.reply_text(preview, parse_mode=ParseMode.HTML, reply_markup=kb)
     return GW_CONFIRM
 
 
@@ -330,12 +365,12 @@ async def gw_confirm_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["new_gw_id"] = gw_id
 
     await q.edit_message_text(
-        f"✅ Giveaway *#{gw_id}* created!\n\n"
-        f"⚠️ *Important:* To automatically update the live entry count on the post, "
+        f"✅ <b>Giveaway #{gw_id} created!</b>\n\n"
+        f"⚠️ <b>Important:</b> To automatically update the live entry count on the post, "
         f"the bot MUST be the one who sends it to the channel.\n\n"
-        f"1️⃣ First, add this bot as an **Admin** in your target channel.\n"
-        f"2️⃣ Then, send the channel username here (e.g. `@MyChannel` or send `here` to post in this chat):",
-        parse_mode=ParseMode.MARKDOWN,
+        f"1️⃣ First, add this bot as an <b>Admin</b> in your target channel.\n"
+        f"2️⃣ Then, send the channel username here (e.g. <code>@MyChannel</code> or send <code>here</code> to post in this chat):",
+        parse_mode=ParseMode.HTML,
     )
     return POST_CHANNEL
 
@@ -370,16 +405,20 @@ async def gw_post_channel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         await db.update_giveaway_post(gw_id, msg.message_id, msg.chat_id)
         await update.message.reply_text(
-            f"✅ Giveaway *#{gw_id}* posted!\n"
+            f"✅ Giveaway <b>#{gw_id}</b> posted successfully!\n"
             f"Entries will update every minute automatically.",
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=ParseMode.HTML,
         )
     except Exception as e:
-        await update.message.reply_text(f"❌ Failed to post: {e}")
+        await update.message.reply_text(
+            f"❌ Failed to post: <code>{e}</code>\n\n"
+            f"You can try sharing it manually from the <b>Manage Active Giveaways</b> menu.",
+            parse_mode=ParseMode.HTML
+        )
 
     return ConversationHandler.END
 
 
 async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ Cancelled.")
+    await update.message.reply_text("❌ Action cancelled.")
     return ConversationHandler.END
