@@ -9,6 +9,7 @@ from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     MessageHandler, ConversationHandler, filters,
+    InlineQueryHandler, ChosenInlineResultHandler,
 )
 
 load_dotenv()
@@ -30,14 +31,13 @@ from handlers.admin import (
     GW_CONFIRM, POST_CHANNEL,
 )
 from handlers.user import (
-    cmd_start, captcha_answer,
-    i_shared_callback, confirm_entry_callback,
-    CAPTCHA_WAIT, SHARE_WAIT, CONFIRM_WAIT,
+    cmd_start, captcha_answer, confirm_entry_callback, CAPTCHA_WAIT,
 )
+from handlers.inline import inline_query_handler, chosen_inline_result_handler
 from handlers.jobs import update_all_posts, track_discussion_messages
 
 
-# ── Render keep-alive health server ───────────────────────────────────────────
+# ── Keep-alive health server for Render ───────────────────────────────────────
 class _Health(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -83,30 +83,33 @@ def main():
         per_chat=False,
     )
 
-    # ── User entry conversation ────────────────────────────────────────────────
-    # Flow: /start gw_<id> → CAPTCHA_WAIT → SHARE_WAIT → CONFIRM_WAIT → done
+    # ── User captcha conversation (/start gw_<id> → captcha only) ─────────────
     user_conv = ConversationHandler(
         entry_points=[CommandHandler("start", cmd_start)],
         states={
             CAPTCHA_WAIT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, captcha_answer)
             ],
-            SHARE_WAIT: [
-                CallbackQueryHandler(i_shared_callback, pattern=r"^i_shared_\d+$")
-            ],
-            CONFIRM_WAIT: [
-                CallbackQueryHandler(confirm_entry_callback, pattern=r"^confirm_entry_\d+$")
-            ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         per_chat=False,
-        conversation_timeout=1800,  # 30 min — enough time to share
+        conversation_timeout=300,  # 5 min for captcha
     )
 
     app.add_handler(admin_conv)
     app.add_handler(user_conv)
 
-    # Track group messages for strict GW message counting
+    # ── Inline share verification ─────────────────────────────────────────────
+    # Requires: BotFather → /setinline (enable) + /setinlinefeedback → 100%
+    app.add_handler(InlineQueryHandler(inline_query_handler))
+    app.add_handler(ChosenInlineResultHandler(chosen_inline_result_handler))
+
+    # ── Confirm entry button — standalone (sent by bot after 3 verified shares)
+    app.add_handler(
+        CallbackQueryHandler(confirm_entry_callback, pattern=r"^confirm_entry_\d+$")
+    )
+
+    # ── Track group messages for strict GW ────────────────────────────────────
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS,
@@ -114,7 +117,7 @@ def main():
         )
     )
 
-    # Update entry counts and auto-end expired giveaways every 60s
+    # Update posts + auto-end giveaways every 60s
     app.job_queue.run_repeating(update_all_posts, interval=60, first=15)
 
     logging.getLogger(__name__).info("🤖 GW Bot starting...")

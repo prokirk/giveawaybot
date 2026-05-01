@@ -1,10 +1,12 @@
-"""User-facing handlers: captcha → share post → confirm entry."""
+"""User-facing handlers: captcha → inline share (verified) → confirm entry."""
 from __future__ import annotations
 import io
 import os
-from urllib.parse import quote
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update, InlineKeyboardButton, InlineKeyboardMarkup,
+    SwitchInlineQueryChosenChat,
+)
 from telegram.ext import ContextTypes, ConversationHandler
 from telegram.constants import ParseMode
 
@@ -14,8 +16,6 @@ from formatter import build_giveaway_post, time_remaining
 
 # Conversation states
 CAPTCHA_WAIT = 50
-SHARE_WAIT   = 51
-CONFIRM_WAIT = 52
 
 
 # ── /start ─────────────────────────────────────────────────────────────────────
@@ -156,70 +156,42 @@ async def captcha_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⏰ Giveaway ended while solving captcha.")
         return ConversationHandler.END
 
-    # ── Step 2: Send the GW post for sharing ──────────────────────────────────
+    # ── Step 2: Send GW post with VERIFIED share button ───────────────────────
     bot_me = await ctx.bot.get_me()
-    bot_username = bot_me.username
-    post_text, deep_link = build_giveaway_post(gw, gw["entry_count"], bot_username)
+    post_text, deep_link = build_giveaway_post(gw, gw["entry_count"], bot_me.username)
 
-    share_url = (
-        "https://t.me/share/url?"
-        f"url={quote(deep_link, safe='')}"
-        f"&text={quote('🎉 Join this Giveaway! Click to participate:', safe='')}"
-    )
-
-    # Send the actual GW post (user can also forward this message)
     await update.message.reply_text(
         f"✅ *Captcha solved!*\n\n"
         f"*Step 2 of 3 — Share this giveaway*\n\n"
-        f"Forward the post below OR use the Share button to share with *3 friends*, "
-        f"then click *\"✅ I've Shared\"*.",
+        f"Press the *Share* button below and send the giveaway to *3 different chats or friends*.\n\n"
+        f"⚠️ Telegram verifies each share — the bot will automatically count them.\n"
+        f"After *3 confirmed shares*, your entry confirmation will be sent here.",
         parse_mode=ParseMode.MARKDOWN,
     )
 
-    # Send the full GW post so they can forward it
-    share_kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📢 Share Giveaway", url=share_url)],
-        [InlineKeyboardButton("✅ I've Shared to 3 People", callback_data=f"i_shared_{gw_id}")],
-    ])
+    # send the GW post with a share button (switch_inline_query sends via inline)
+    share_kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            "📢 Share Giveaway (1/3)",
+            switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(
+                query=f"gw_{gw_id}",
+                allow_user_chats=True,
+                allow_bot_chats=False,
+                allow_group_chats=True,
+                allow_channel_chats=False,
+            ),
+        )
+    ]])
     await update.message.reply_text(
         post_text,
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=share_kb,
     )
-
-    ctx.user_data["share_gw_id"] = gw_id
-    return SHARE_WAIT
-
-
-# ── "I Shared" callback ────────────────────────────────────────────────────────
-
-async def i_shared_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer("✅ Got it! Now confirm your entry below.")
-    gw_id = int(q.data.split("_")[-1])
-
-    gw = await db.get_giveaway(gw_id)
-    if not gw or gw["status"] != "running":
-        await q.edit_message_text("⏰ This giveaway has already ended.")
-        return ConversationHandler.END
-
-    # ── Step 3: Show confirm button ────────────────────────────────────────────
-    confirm_kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("🎉 Confirm My Entry!", callback_data=f"confirm_entry_{gw_id}")
-    ]])
-    await q.edit_message_reply_markup(reply_markup=None)  # remove share buttons
-    await q.message.reply_text(
-        f"🎉 *Step 3 of 3 — Confirm Entry*\n\n"
-        f"Thank you for sharing! Click below to *lock in your entry*.\n\n"
-        f"💰 Prize: `{gw['amount']}`",
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=confirm_kb,
-    )
-    ctx.user_data["confirm_gw_id"] = gw_id
-    return CONFIRM_WAIT
+    # Share tracking now handled async via ChosenInlineResult in handlers/inline.py
+    return ConversationHandler.END
 
 
-# ── Confirm entry callback ─────────────────────────────────────────────────────
+# ── Confirm entry callback (standalone — triggered after 3 verified shares) ───────────
 
 async def confirm_entry_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query

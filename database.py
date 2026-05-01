@@ -71,6 +71,12 @@ async def init_db():
                 PRIMARY KEY(giveaway_id, user_id)
             );
 
+            CREATE TABLE IF NOT EXISTS inline_shares (
+                giveaway_id INTEGER NOT NULL,
+                user_id     BIGINT NOT NULL,
+                share_count INTEGER DEFAULT 0,
+                PRIMARY KEY(giveaway_id, user_id)
+            );
         """)
 
 
@@ -274,5 +280,35 @@ async def get_top_texters(gw_id: int, top_percent: float = 0.10) -> List[Dict]:
         all_users = [dict(r) for r in rows]
         top_n = max(1, int(len(all_users) * top_percent))
         return all_users[:top_n]
+
+
+# ── Inline share tracking ──────────────────────────────────────────────────────
+
+async def increment_inline_share(gw_id: int, user_id: int) -> int:
+    """Increment verified inline share count, return new total."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO inline_shares (giveaway_id, user_id, share_count)
+               VALUES ($1, $2, 1)
+               ON CONFLICT (giveaway_id, user_id)
+               DO UPDATE SET share_count = inline_shares.share_count + 1""",
+            gw_id, user_id
+        )
+        row = await conn.fetchrow(
+            "SELECT share_count FROM inline_shares WHERE giveaway_id=$1 AND user_id=$2",
+            gw_id, user_id
+        )
+        return row["share_count"] if row else 0
+
+
+async def get_inline_share_count(gw_id: int, user_id: int) -> int:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT share_count FROM inline_shares WHERE giveaway_id=$1 AND user_id=$2",
+            gw_id, user_id
+        )
+        return row["share_count"] if row else 0
 
 
