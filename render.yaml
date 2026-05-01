@@ -6,6 +6,8 @@ services:
     buildCommand: pip install --prefer-binary -r requirements.txt
     startCommand: python bot.py
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
       - key: BOT_TOKEN
         sync: false
       - key: OWNER_ID
