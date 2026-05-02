@@ -27,7 +27,25 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query_text = update.inline_query.query.strip()
 
     if not query_text.startswith("gw_"):
-        await update.inline_query.answer([], cache_time=1)
+        bot_me = await ctx.bot.get_me()
+        results = [
+            InlineQueryResultArticle(
+                id="share_bot",
+                title="Share Giveaway Bot",
+                description="Tap to share this bot with friends!",
+                input_message_content=InputTextMessageContent(
+                    message_text=(
+                        f"🎉 Want to run professional giveaways?\n\n"
+                        f"Check out @{bot_me.username}!\n"
+                        f"It helps you create, manage, and verify Telegram giveaways easily."
+                    ),
+                ),
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("Start Bot", url=f"https://t.me/{bot_me.username}")
+                ]]),
+            )
+        ]
+        await update.inline_query.answer(results, cache_time=1, is_personal=False)
         return
 
     try:
