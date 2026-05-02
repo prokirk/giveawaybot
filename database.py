@@ -225,6 +225,15 @@ async def get_running_giveaways() -> List[Dict]:
     ) or []
 
 
+async def get_running_giveaways_by_user(user_id: int) -> List[Dict]:
+    return await _run(
+        "SELECT * FROM giveaways WHERE status='running' AND created_by=%s ORDER BY created_at DESC",
+        (user_id,), fetch="all"
+    ) or []
+
+
+
+
 async def end_giveaway(gw_id: int, winner_id: int, winner_username: str):
     await _run(
         "UPDATE giveaways SET status='ended', winner_id=%s, winner_username=%s WHERE id=%s",

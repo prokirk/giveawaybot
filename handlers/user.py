@@ -27,10 +27,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # Plain /start — just a welcome message
     if not args:
         await update.message.reply_text(
-            f"👋 Hello *{user.first_name}*!\n\n"
-            f"This bot is designed to manage and run professional Telegram giveaways.\n"
-            f"Stay tuned for upcoming events!",
-            parse_mode=ParseMode.MARKDOWN,
+            f"Hello {user.first_name}!\n\nThis bot manages Telegram giveaways.\nStay tuned for upcoming events.",
         )
         return ConversationHandler.END
 
@@ -54,9 +51,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⏰ This giveaway has already ended.")
         return ConversationHandler.END
     if await db.has_entered(gw_id, user.id):
-        await update.message.reply_text(
-            "✅ You are *already entered!* Good luck 🍀", parse_mode=ParseMode.MARKDOWN
-        )
+        await update.message.reply_text("You are already entered. Good luck.")
         return ConversationHandler.END
 
     # ── Channel membership check — BOTH GW types require joining ──────────────
@@ -96,12 +91,11 @@ async def _send_captcha(target, ctx, gw_id: int, user_id: int):
     await target.reply_photo(
         photo=io.BytesIO(img_bytes),
         caption=(
-            "🔐 *Security Check — Step 1 of 3*\n\n"
-            "Solve the math problem in the image and *type your answer*.\n"
-            "You have *3 attempts*.\n\n"
-            "_(This prevents bots from entering)_"
+            "Security Check — Step 1 of 3\n\n"
+            "Solve the math problem in the image and type your answer.\n"
+            "You have 3 attempts.\n\n"
+            "(This prevents bots from entering)"
         ),
-        parse_mode=ParseMode.MARKDOWN,
     )
     return CAPTCHA_WAIT
 
@@ -152,12 +146,11 @@ async def captcha_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if gw["type"] == "strict":
         # Strict GW — must share to 3 chats via inline (Telegram-verified)
         await update.message.reply_text(
-            f"✅ *Captcha solved!*\n\n"
-            f"*Step 2 of 3 — Share this giveaway*\n\n"
-            f"Press *Share* below and send to *3 different chats/friends*.\n"
+            f"Captcha solved!\n\n"
+            f"Step 2 of 3 — Share this giveaway\n\n"
+            f"Press Share below and send to 3 different chats/friends.\n"
             f"Telegram verifies each share automatically.\n"
-            f"After *3 confirmed shares*, your confirm button will appear here.",
-            parse_mode=ParseMode.MARKDOWN,
+            f"After 3 confirmed shares, your confirm button will appear here.",
         )
         share_kb = InlineKeyboardMarkup([[
             InlineKeyboardButton(
@@ -182,10 +175,9 @@ async def captcha_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("🎉 Confirm My Entry!", callback_data=f"confirm_entry_{gw_id}")
         ]])
         await update.message.reply_text(
-            f"✅ *Captcha solved!*\n\n"
-            f"Click below to confirm your entry into Giveaway *#{gw_id}*!\n"
-            f"💰 Prize: `{gw['amount']}`",
-            parse_mode=ParseMode.MARKDOWN,
+            f"Captcha solved!\n\n"
+            f"Confirm your entry into Giveaway #{gw_id}.\n"
+            f"Prize: {gw['amount']}",
             reply_markup=confirm_kb,
         )
         return ConversationHandler.END
@@ -220,11 +212,9 @@ async def confirm_entry_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
     await db.update_entry_count(gw_id, count)
 
     await q.edit_message_text(
-        f"🏅 *Entry #{count} Confirmed!*\n\n"
-        f"You're officially in Giveaway *#{gw_id}*!\n"
-        f"💰 Prize: `{gw['amount']}`\n\n"
-        f"Good luck! 🍀\n"
+        f"Entry #{count} confirmed!\n\n"
+        f"You're in Giveaway #{gw_id}.\n"
+        f"Prize: {gw['amount']}\n\n"
         f"Winner announced when the giveaway ends.",
-        parse_mode=ParseMode.MARKDOWN,
     )
     return ConversationHandler.END

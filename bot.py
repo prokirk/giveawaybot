@@ -19,7 +19,6 @@ try:
 except ValueError:
     OWNER_ID = 0
 
-
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     level=logging.INFO,
@@ -27,7 +26,8 @@ logging.basicConfig(
 
 import database as db
 from handlers.admin import (
-    admin_panel, admin_callback, do_add_admin, do_remove_admin,
+    owner_panel, admin_panel, admin_callback,
+    do_add_admin, do_remove_admin,
     gw_channel, gw_discussion, gw_amount, gw_description, gw_duration,
     gw_confirm_callback, gw_post_channel, cancel,
     ADMIN_MENU, ADD_ADMIN_ID, REMOVE_ADMIN_ID,
@@ -41,7 +41,7 @@ from handlers.inline import inline_query_handler, chosen_inline_result_handler
 from handlers.jobs import update_all_posts, track_discussion_messages
 
 
-# ── Keep-alive health server for Render ───────────────────────────────────────
+# ── Keep-alive health server ───────────────────────────────────────────────────
 class _Health(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -65,29 +65,41 @@ def main():
         raise RuntimeError("BOT_TOKEN not set in .env")
 
     threading.Thread(target=_start_health, daemon=True).start()
-
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
-    # ── Admin conversation ─────────────────────────────────────────────────────
-    admin_conv = ConversationHandler(
-        entry_points=[CommandHandler("admin", admin_panel)],
-        states={
-            ADMIN_MENU:      [CallbackQueryHandler(admin_callback)],
-            ADD_ADMIN_ID:    [MessageHandler(filters.TEXT & ~filters.COMMAND, do_add_admin)],
-            REMOVE_ADMIN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, do_remove_admin)],
-            GW_CHANNEL:      [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_channel)],
-            GW_DISCUSSION:   [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_discussion)],
-            GW_AMOUNT:       [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_amount)],
-            GW_DESCRIPTION:  [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_description)],
-            GW_DURATION:     [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_duration)],
-            GW_CONFIRM:      [CallbackQueryHandler(gw_confirm_callback)],
-            POST_CHANNEL:    [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_post_channel)],
-        },
+    # Shared states for both /owner and /admin conversations
+    shared_states = {
+        ADMIN_MENU:      [CallbackQueryHandler(admin_callback)],
+        ADD_ADMIN_ID:    [MessageHandler(filters.TEXT & ~filters.COMMAND, do_add_admin)],
+        REMOVE_ADMIN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, do_remove_admin)],
+        GW_CHANNEL:      [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_channel)],
+        GW_DISCUSSION:   [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_discussion)],
+        GW_AMOUNT:       [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_amount)],
+        GW_DESCRIPTION:  [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_description)],
+        GW_DURATION:     [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_duration)],
+        GW_CONFIRM:      [CallbackQueryHandler(gw_confirm_callback)],
+        POST_CHANNEL:    [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_post_channel)],
+    }
+
+    # ── /owner panel (owner only — full access) ────────────────────────────────
+    owner_conv = ConversationHandler(
+        entry_points=[CommandHandler("owner", owner_panel)],
+        states=shared_states,
         fallbacks=[CommandHandler("cancel", cancel)],
         per_chat=False,
+        allow_reentry=True,   # Re-entering /owner always restarts the panel
     )
 
-    # ── User captcha conversation (/start gw_<id> → captcha only) ─────────────
+    # ── /admin panel (admins — restricted: own GWs only, no add/rm admin) ─────
+    admin_conv = ConversationHandler(
+        entry_points=[CommandHandler("admin", admin_panel)],
+        states=shared_states,
+        fallbacks=[CommandHandler("cancel", cancel)],
+        per_chat=False,
+        allow_reentry=True,   # Re-entering /admin always restarts
+    )
+
+    # ── User captcha conversation ──────────────────────────────────────────────
     user_conv = ConversationHandler(
         entry_points=[CommandHandler("start", cmd_start)],
         states={
@@ -97,18 +109,19 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         per_chat=False,
-        conversation_timeout=300,  # 5 min for captcha
+        allow_reentry=True,
+        conversation_timeout=300,
     )
 
+    app.add_handler(owner_conv)
     app.add_handler(admin_conv)
     app.add_handler(user_conv)
 
-    # ── Inline share verification ─────────────────────────────────────────────
-    # Requires: BotFather → /setinline (enable) + /setinlinefeedback → 100%
+    # ── Inline share verification ──────────────────────────────────────────────
     app.add_handler(InlineQueryHandler(inline_query_handler))
     app.add_handler(ChosenInlineResultHandler(chosen_inline_result_handler))
 
-    # ── Confirm entry button — standalone (sent by bot after 3 verified shares)
+    # ── Confirm entry button ───────────────────────────────────────────────────
     app.add_handler(
         CallbackQueryHandler(confirm_entry_callback, pattern=r"^confirm_entry_\d+$")
     )
@@ -121,10 +134,10 @@ def main():
         )
     )
 
-    # Update posts + auto-end giveaways every 60s
+    # Update posts + auto-end every 60s
     app.job_queue.run_repeating(update_all_posts, interval=60, first=15)
 
-    logging.getLogger(__name__).info("🤖 GW Bot starting...")
+    logging.getLogger(__name__).info("GW Bot starting...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
