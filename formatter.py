@@ -1,7 +1,8 @@
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 
-IST = timezone(timedelta(hours=5, minutes=30))
+USA_TZ = ZoneInfo("America/New_York")
 
 
 def fmt_dt(dt_val) -> str:
@@ -12,11 +13,11 @@ def fmt_dt(dt_val) -> str:
         else:
             dt = dt_val  # already a datetime from psycopg2
 
-        # Ensure UTC, then convert to IST
+        # Ensure UTC, then convert to USA time
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        dt_ist = dt.astimezone(IST)
-        return dt_ist.strftime("%b %d, %Y  %I:%M %p IST")
+        dt_usa = dt.astimezone(USA_TZ)
+        return dt_usa.strftime("%b %d, %Y  %I:%M %p EDT/EST")
     except Exception:
         return str(dt_val)
 

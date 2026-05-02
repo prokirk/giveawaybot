@@ -52,10 +52,16 @@ async def update_all_posts(context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔗 Share", switch_inline_query=f"gw_{gw_id}")],
         ])
         try:
-            await bot.edit_message_text(
-                chat_id=chat_id, message_id=msg_id,
-                text=text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb,
-            )
+            if fresh.get("image_id"):
+                await bot.edit_message_caption(
+                    chat_id=chat_id, message_id=msg_id,
+                    caption=text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb,
+                )
+            else:
+                await bot.edit_message_text(
+                    chat_id=chat_id, message_id=msg_id,
+                    text=text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb,
+                )
         except Exception:
             pass
 
@@ -72,11 +78,18 @@ async def _end_giveaway(bot, gw: dict, bot_username: str):
         await db.end_giveaway(gw_id, 0, "No entries")
         if msg_id and chat_id:
             try:
-                await bot.edit_message_text(
-                    chat_id=chat_id, message_id=msg_id,
-                    text="⏰ *Giveaway ended — No entries received.*",
-                    parse_mode=ParseMode.MARKDOWN,
-                )
+                if gw.get("image_id"):
+                    await bot.edit_message_caption(
+                        chat_id=chat_id, message_id=msg_id,
+                        caption="⏰ *Giveaway ended — No entries received.*",
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+                else:
+                    await bot.edit_message_text(
+                        chat_id=chat_id, message_id=msg_id,
+                        text="⏰ *Giveaway ended — No entries received.*",
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
             except Exception:
                 pass
         return
@@ -103,10 +116,16 @@ async def _end_giveaway(bot, gw: dict, bot_username: str):
     # Edit post
     if msg_id and chat_id:
         try:
-            await bot.edit_message_text(
-                chat_id=chat_id, message_id=msg_id,
-                text=announcement, parse_mode=ParseMode.MARKDOWN,
-            )
+            if fresh.get("image_id"):
+                await bot.edit_message_caption(
+                    chat_id=chat_id, message_id=msg_id,
+                    caption=announcement, parse_mode=ParseMode.MARKDOWN,
+                )
+            else:
+                await bot.edit_message_text(
+                    chat_id=chat_id, message_id=msg_id,
+                    text=announcement, parse_mode=ParseMode.MARKDOWN,
+                )
         except Exception:
             pass
 

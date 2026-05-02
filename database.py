@@ -83,9 +83,15 @@ def _init_sync():
                     chat_id         BIGINT,
                     winner_id       BIGINT,
                     winner_username TEXT,
-                    entry_count     INTEGER DEFAULT 0
+                    entry_count     INTEGER DEFAULT 0,
+                    image_id        TEXT
                 )
             """)
+            # Alter table in case it already exists
+            try:
+                cur.execute("ALTER TABLE giveaways ADD COLUMN image_id TEXT;")
+            except psycopg2.errors.DuplicateColumn:
+                pass
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS entries (
                     id          SERIAL PRIMARY KEY,
@@ -185,10 +191,10 @@ async def create_giveaway(data: Dict) -> int:
             with conn.cursor() as cur:
                 cur.execute(
                     """INSERT INTO giveaways
-                       (type, channel, discussion_link, amount, description, end_time, created_by)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                       (type, channel, discussion_link, amount, description, end_time, created_by, image_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                     (data["type"], data.get("channel"), data.get("discussion_link"),
-                     data["amount"], data.get("description"), end_time, data["created_by"])
+                     data["amount"], data.get("description"), end_time, data["created_by"], data.get("image_id"))
                 )
                 row = cur.fetchone()
                 conn.commit()

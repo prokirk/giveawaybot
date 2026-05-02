@@ -44,21 +44,37 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     bot_me = await ctx.bot.get_me()
     post_text, deep_link = build_giveaway_post(gw, gw["entry_count"], bot_me.username)
 
-    results = [
-        InlineQueryResultArticle(
-            id=f"gw_{gw_id}",
-            title=f"🎉 Share Giveaway #{gw_id} — {gw['amount']}",
-            description="Tap to send this giveaway to a friend or group!",
-            input_message_content=InputTextMessageContent(
-                message_text=post_text,
+    if gw.get("image_id"):
+        from telegram import InlineQueryResultCachedPhoto
+        results = [
+            InlineQueryResultCachedPhoto(
+                id=f"gw_{gw_id}",
+                photo_file_id=gw["image_id"],
+                title=f"Share Giveaway #{gw_id} — {gw['amount']}",
+                description="Tap to send this giveaway to a friend or group!",
+                caption=post_text,
                 parse_mode=ParseMode.MARKDOWN,
-            ),
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🎉 Participate!", url=deep_link)
-            ]]),
-            thumbnail_url="https://i.imgur.com/2nCt3Sbl.jpg",
-        )
-    ]
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("Participate!", url=deep_link)
+                ]]),
+            )
+        ]
+    else:
+        results = [
+            InlineQueryResultArticle(
+                id=f"gw_{gw_id}",
+                title=f"Share Giveaway #{gw_id} — {gw['amount']}",
+                description="Tap to send this giveaway to a friend or group!",
+                input_message_content=InputTextMessageContent(
+                    message_text=post_text,
+                    parse_mode=ParseMode.MARKDOWN,
+                ),
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("Participate!", url=deep_link)
+                ]]),
+                thumbnail_url="https://i.imgur.com/2nCt3Sbl.jpg",
+            )
+        ]
 
     await update.inline_query.answer(
         results,

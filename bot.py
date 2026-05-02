@@ -28,10 +28,10 @@ import database as db
 from handlers.admin import (
     owner_panel, admin_panel, admin_callback,
     do_add_admin, do_remove_admin,
-    gw_channel, gw_discussion, gw_amount, gw_description, gw_duration,
+    gw_channel, gw_discussion, gw_amount, gw_description, gw_duration, gw_image,
     gw_confirm_callback, gw_post_channel, cancel,
     ADMIN_MENU, ADD_ADMIN_ID, REMOVE_ADMIN_ID,
-    GW_CHANNEL, GW_DISCUSSION, GW_AMOUNT, GW_DESCRIPTION, GW_DURATION,
+    GW_CHANNEL, GW_DISCUSSION, GW_AMOUNT, GW_DESCRIPTION, GW_DURATION, GW_IMAGE,
     GW_CONFIRM, POST_CHANNEL,
 )
 from handlers.user import (
@@ -77,6 +77,7 @@ def main():
         GW_AMOUNT:       [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_amount)],
         GW_DESCRIPTION:  [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_description)],
         GW_DURATION:     [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_duration)],
+        GW_IMAGE:        [MessageHandler((filters.PHOTO | filters.TEXT) & ~filters.COMMAND, gw_image)],
         GW_CONFIRM:      [CallbackQueryHandler(gw_confirm_callback)],
         POST_CHANNEL:    [MessageHandler(filters.TEXT & ~filters.COMMAND, gw_post_channel)],
     }

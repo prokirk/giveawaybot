@@ -20,10 +20,10 @@ except ValueError:
     ADMIN_MENU,
     ADD_ADMIN_ID, REMOVE_ADMIN_ID,
     GW_TYPE,
-    GW_CHANNEL, GW_DISCUSSION, GW_AMOUNT, GW_DESCRIPTION, GW_DURATION,
+    GW_CHANNEL, GW_DISCUSSION, GW_AMOUNT, GW_DESCRIPTION, GW_DURATION, GW_IMAGE,
     GW_CONFIRM,
     POST_CHANNEL,
-) = range(11)
+) = range(12)
 
 
 def owner_menu_keyboard():
@@ -361,7 +361,23 @@ async def gw_duration(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     end_time = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
     ctx.user_data["gw_end_time"] = end_time
+    ctx.user_data["gw_hours"] = hours
 
+    step = "6/6" if ctx.user_data.get("gw_type") == "strict" else "5/5"
+    await update.message.reply_text(
+        f"Step {step} — <b>Send an image</b> for the giveaway, or send <code>-</code> to skip:",
+        parse_mode=ParseMode.HTML,
+    )
+    return GW_IMAGE
+
+
+async def gw_image(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.message.photo:
+        ctx.user_data["gw_image_id"] = update.message.photo[-1].file_id
+    else:
+        ctx.user_data["gw_image_id"] = None
+
+    hours      = ctx.user_data["gw_hours"]
     gw_type    = ctx.user_data.get("gw_type")
     channel    = ctx.user_data.get("gw_channel", "N/A")
     discussion = ctx.user_data.get("gw_discussion", "N/A")
@@ -379,6 +395,7 @@ async def gw_duration(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"Prize: <code>{html.escape(amount)}</code>\n"
         f"Description: {html.escape(desc)}\n"
         f"Duration: <code>{hours}h</code>\n"
+        f"Image: {'Yes' if ctx.user_data.get('gw_image_id') else 'No'}\n"
     )
 
     kb = InlineKeyboardMarkup([
@@ -406,6 +423,7 @@ async def gw_confirm_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "description":     ctx.user_data.get("gw_description"),
         "end_time":        ctx.user_data["gw_end_time"],
         "created_by":      uid,
+        "image_id":        ctx.user_data.get("gw_image_id"),
     }
     gw_id = await db.create_giveaway(data)
     ctx.user_data["new_gw_id"] = gw_id
@@ -438,10 +456,16 @@ async def gw_post_channel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ])
 
     try:
-        msg = await bot.send_message(
-            chat_id=target, text=text,
-            parse_mode=ParseMode.MARKDOWN, reply_markup=kb,
-        )
+        if gw.get("image_id"):
+            msg = await bot.send_photo(
+                chat_id=target, photo=gw["image_id"], caption=text,
+                parse_mode=ParseMode.MARKDOWN, reply_markup=kb,
+            )
+        else:
+            msg = await bot.send_message(
+                chat_id=target, text=text,
+                parse_mode=ParseMode.MARKDOWN, reply_markup=kb,
+            )
         await db.update_giveaway_post(gw_id, msg.message_id, msg.chat_id)
         await update.message.reply_text(
             f"Giveaway <b>#{gw_id}</b> posted. Entries update every minute.",
